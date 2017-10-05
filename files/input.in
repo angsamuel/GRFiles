@@ -1,0 +1,9 @@
+size: 9
+moveCost: 0
+predictionCost: 2
+attackerStart: 3,3
+target: 6,3 .2
+target: 8,6 .2
+target: 0,7 .2
+target: 0,8 .2
+target: 5,8 .2
