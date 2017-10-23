@@ -7,7 +7,10 @@ import sys.process._
 import scala.util.control.Breaks._
 import collection.mutable.HashMap
 import scala.util.Random
+//6.39
+//7.2958
 
+//morning star venus
 var targetMap = HashMap[String, Int]()
 //scala main.scala <inputFileName> <lpFileName> <outputFilename>
 //Generate Board
@@ -27,6 +30,8 @@ class Target(posX:Integer, posY:Integer, probability:Double){
 		"(" + x.toString + "," + y.toString + ")"
 	}
 }
+
+
 GrabValues(args(0));
 GenerateLP(args(1));
 RunSolver();
@@ -37,13 +42,13 @@ RunSolver();
 if(args(3) == "--multiple"){
 	var totalScore = 0.0
 	var totalScoreDefault = 0.0
-	for(i <- 0 to args(4).toInt){
+	for(i <- 0 to args(5).toInt){
 		var playedGame = PlayGame(false)
 		totalScore += playedGame._1
 		totalScoreDefault += playedGame._2
 	}
-	println("Best Response Score: " + totalScore/args(4).toInt)
-	println("Stationary Score: " + totalScoreDefault/args(4).toInt)
+	println("Best Response Score: " + totalScore/args(5).toInt)
+	println("Stationary Score: " + totalScoreDefault/args(5).toInt)
 	println(targetMap)
 }else if(args(3) == "--single"){
 	PlayGame(true)
@@ -188,13 +193,23 @@ def MakeTerm(letter:String,target:Target,x:Integer,y:Integer):String = {
 }
 
 def RunSolver(){
+	if(args(4) == "-s"){
+		var lpFilePath = "./files/" + args(1)
+		var outputFilePath = "./files/" + args(2)
+		var command = "glpsol --cpxlp " + lpFilePath + " --write " + outputFilePath + ""
+		outputFilePath = "./files/ez" + args(2)
+		var ezcommand = "glpsol --cpxlp " + lpFilePath + " -o " + outputFilePath + ""
+		(command).!
+		(ezcommand).!
+	}else if(args(4) == "-i"){
 	var lpFilePath = "./files/" + args(1)
-	var outputFilePath = "./files/" + args(2)
-	var command = "glpsol --cpxlp " + lpFilePath + " --write " + outputFilePath + ""
-	outputFilePath = "./files/ez" + args(2)
-	var ezcommand = "glpsol --cpxlp " + lpFilePath + " -o " + outputFilePath + ""
-	(command).!
-	(ezcommand).!
+		var outputFilePath = "./files/" + args(2)
+		var command = "glpsol --cpxlp --interior " + lpFilePath + " --write " + outputFilePath + ""
+		outputFilePath = "./files/ez" + args(2)
+		var ezcommand = "glpsol --cpxlp --interior " + lpFilePath + " -o " + outputFilePath + ""
+		(command).!
+		(ezcommand).!
+	}
 }
 
 def BuildAttackerMap(){
@@ -202,7 +217,12 @@ def BuildAttackerMap(){
 	attackMap = HashMap[(String, String), ListBuffer[(String, Double)]]()
 	//get list of attacker values
 	val solvedLines = Source.fromFile("files/" + args(2)).getLines().toList.dropRight(2).drop(8)
-	val attackerValues = solvedLines.map(_.split(" ")(4).toDouble)
+	var attackerValues = List[Double]() //solvedLines.map(_.split(" ")(3).toDouble)
+	if(args(4) == "-i"){
+		attackerValues = solvedLines.map(_.split(" ")(3).toDouble)
+	}else if(args(4) == "-s"){
+		attackerValues = solvedLines.map(_.split(" ")(4).toDouble)
+	}
 
 	val lpLines = Source.fromFile("files/" + args(1)).getLines().toList.drop(3).filter(_.charAt(0) == 'V').filter(_.split(" ")(1) != "free")
 /*
@@ -302,8 +322,18 @@ def GenerateAttackerStrategy():ListBuffer[String] = {
 	attackerStrategy
 }
 
+def BuildTrackerMap():HashMap[String, Double] = {
+	var trackerMap = HashMap[String, Double]()
+	for(t <- targets){
+		trackerMap(t.GetPos) = 1.0
+	}
+	trackerMap
+}
+
 def BuildDefenderMap():HashMap[String, ListBuffer[(String, Double)]] = {
+						//pos                  target weight
 	var defMap = HashMap[String, ListBuffer[(String, Double)]]()
+
 	val outputLines = Source.fromFile("files/ez" + args(2)).getLines().toList
 	var dashCount = 0
 	for(line <- outputLines){
@@ -321,7 +351,11 @@ def BuildDefenderMap():HashMap[String, ListBuffer[(String, Double)]] = {
 					if(splitLine(1).take(1)=="F"){					
 						if(splitLine(3) != "<"){
 							fValue = splitLine(1) 
-							activity = splitLine(3).toDouble
+							if(args(4) == "-s"){
+								activity = splitLine(3).toDouble
+							}else if(args(4) == "-i"){
+								activity = splitLine(2).toDouble
+							}
 						}
 					}
 				}
@@ -354,6 +388,9 @@ def PlayGame(printInfo: Boolean):(Double,Double) = {
 	attackerStrat = attackerStrat.dropRight(1)
 	var BestResponseGuesses = new ListBuffer[String]()
 	var StationaryGuesses = new ListBuffer[String]()
+	var weightTracker = BuildTrackerMap()
+
+
 	for(i <- 0 until attackerStrat.size-1){
 		var maxValue = -10.0
 		var maxGuess = "[NONE]"
@@ -368,6 +405,7 @@ def PlayGame(printInfo: Boolean):(Double,Double) = {
 				println("Unaltered Defender Map: " + defenderMap(attackerStrat(i)))
 			}
 			for(option <- defenderMap(attackerStrat(i))){
+
 				if(option._2 > maxValue){
 					maxValue = option._2
 					maxGuess = option._1
@@ -403,7 +441,9 @@ def PlayGame(printInfo: Boolean):(Double,Double) = {
 					if(option._1 != attackerStrat(i-1)){
 						for(move <- attackMap(option._1,attackerStrat(i-1))){
 							if(move._1 == attackerStrat(i)){
-								if(move._2 * option._2 > maxValue){
+								weightTracker(option._1) = weightTracker(option._1)*move._2*10
+
+								if(weightTracker(option._1) * option._2 > maxValue){ //used to be move._2
 									//println("EXCUSE ME: " + move._2 + "*" + option._2 + " = " + (move._2 * option._2))
 									//println("--" + option + " " + defenderMap(attackerStrat(i)))
 									maxValue = move._2 * option._2
@@ -412,10 +452,22 @@ def PlayGame(printInfo: Boolean):(Double,Double) = {
 							}
 						}
 					}	
+				//normalize le map
+				var sum = 0.0	
+				for(t <- targets){
+					sum += weightTracker(t.GetPos())
+				}
+				for(t <- targets){
+					weightTracker(t.GetPos()) = weightTracker(t.GetPos()) / sum
+				}
 
 				if(option._2 > maxValueDefault){
 					maxValueDefault = option._2
 					maxGuessDefault = option._1
+				}
+
+				if(maxValue == 0){
+					maxGuess = maxGuessDefault; //stop accidental best choices
 				}
 
 			}
@@ -457,6 +509,7 @@ def PlayGame(printInfo: Boolean):(Double,Double) = {
 		println("----------complete----------")
 		println()
 		println( "attack map at (8,6) (2,8) " + attackMap(("(8,6)", "(2,8)")))
+		println(weightTracker)
 	}
 
 	(defenderScore,defenderScoreDefault)
